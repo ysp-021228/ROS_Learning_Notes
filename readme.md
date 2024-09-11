@@ -419,23 +419,205 @@ $ rosrun rqt_plot rqt_plot
 
 # 服务
 
+## 创建自定义服务
+
+1. 创建srv目录，用于存放自定义的服务文件：
+
+   ```bash
+   cd ~/catkin_ws/src/my_service_pkg
+   mkdir srv
+   ```
+
+2. 创建服务文件
+
+   在 `srv` 目录中创建一个服务文件。例如，我们创建一个 `AddTwoInts.srv` 文件，它接收两个整数并返回它们的和。
+
+   ```bash
+   touch srv/AddTwoInts.srv
+   ```
+
+   在 `AddTwoInts.srv` 文件中定义请求和响应的结构：
+
+   ```
+   int64 a
+   int64 b
+   ---
+   int64 sum
+   ```
+
+   >这个文件的定义分为两部分，`---` 之前是请求的字段，之后是响应的字段。在这个例子中，服务将接收两个整数 `a` 和 `b`，并返回它们的和 `sum`。
+
+3. 修改 `CMakeLists.txt` 和 `package.xml`
+
+   在 `package.xml` 中，添加对 `message_generation` 和 `message_runtime` 的依赖：
+
+   ```
+   <build_depend>message_generation</build_depend>
+   <exec_depend>message_runtime</exec_depend>
+   ```
+
+   在 `CMakeLists.txt` 中，我们需要配置服务文件的生成，找到并修改 find_package 部分：
+   确保 message_generation 已经作为依赖添加：
+
+   ```
+   find_package(catkin REQUIRED COMPONENTS
+     roscpp
+     rospy
+     std_msgs
+     message_generation
+   )
+   ```
+
+   添加 `add_service_files` 来声明 `.srv` 文件：
+
+   ```
+   add_service_files(
+     FILES
+     AddTwoInts.srv
+   )
+   ```
+
+   生成服务代码：
+
+   ```
+   generate_messages(
+     DEPENDENCIES
+     std_msgs
+   )
+   ```
+
+   确保 `catkin_package` 中包含 `message_runtime`：
+
+   ```
+   catkin_package(
+     CATKIN_DEPENDS message_runtime roscpp rospy std_msgs
+   )
+   ```
 
 
 
+## 编写服务端节点
+
+流程如下：
+
+- 初始化ROS节点
+- 创建Server实例
+- 循环等待服务请求，进入回调函数
+- 回调函数中完成服务并反馈应答数据
+
+```c++
+#include "ros/ros.h"
+#include "my_service_pkg/AddTwoInts.h"
+
+// 回调函数，处理来自客户端的请求
+bool add(my_service_pkg::AddTwoInts::Request &req,
+         my_service_pkg::AddTwoInts::Response &res)
+{
+  // 计算两个整数的和
+  res.sum = req.a + req.b;
+  ROS_INFO("Request: a=%ld, b=%ld", (long int)req.a, (long int)req.b);
+  ROS_INFO("Sending back response: [%ld]", (long int)res.sum);
+  return true;
+}
+
+int main(int argc, char **argv)
+{
+  // 初始化ROS节点
+  ros::init(argc, argv, "add_two_ints_server");
+
+  // 创建节点句柄
+  ros::NodeHandle nh;
+
+  // 创建一个服务，服务名称为 "add_two_ints"，回调函数为 add
+  ros::ServiceServer service = nh.advertiseService("add_two_ints", add);
+  ROS_INFO("Ready to add two ints.");
+  
+  // 循环等待并处理服务请求
+  ros::spin();
+
+  return 0;
+}
+```
+
+>`ros::ServiceServer service = nh.advertiseService("add_two_ints", add);`
+>
+>- 创建一个名为 `add_two_ints` 的服务，指定回调函数 `add` 来处理请求。
+>
+>`bool add(my_service_pkg::AddTwoInts::Request &req, my_service_pkg::AddTwoInts::Response &res)`
+>
+>- 回调函数 `add` 处理来自客户端的请求，计算两个整数的和并返回。
+>- 在ROS服务（Service）节点中，**服务端回调函数的返回值类型必须是 `bool`**。这是ROS服务机制的设计要求，用于表明服务是否成功处理了客户端的请求。
+>- 在ROS服务中，服务端回调函数的参数是**固定的**。具体来说，回调函数的参数必须是 **服务的请求（`Request`）和响应（`Response`）对象**，这是ROS服务机制的要求，用于处理来自客户端的请求并生成响应。
 
 
 
+## 编写客户端节点
 
+```c++
+#include "ros/ros.h"
+#include "my_service_pkg/AddTwoInts.h"
+#include <cstdlib>
 
+int main(int argc, char **argv)
+{
+  // 初始化ROS节点
+  ros::init(argc, argv, "add_two_ints_client");
 
+  // 检查输入参数（要求提供两个整数）
+  if (argc != 3)
+  {
+    ROS_INFO("Usage: add_two_ints_client X Y");
+    return 1;
+  }
 
+  // 创建节点句柄
+  ros::NodeHandle nh;
 
+  // 创建客户端，连接到 "add_two_ints" 服务
+  ros::ServiceClient client = nh.serviceClient<my_service_pkg::AddTwoInts>("add_two_ints");
 
+  // 创建服务请求对象并赋值
+  my_service_pkg::AddTwoInts srv;
+  srv.request.a = atoll(argv[1]);
+  srv.request.b = atoll(argv[2]);
 
+  // 请求服务并处理返回结果
+  if (client.call(srv))
+  {
+    ROS_INFO("Sum: %ld", (long int)srv.response.sum);
+  }
+  else
+  {
+    ROS_ERROR("Failed to call service add_two_ints");
+    return 1;
+  }
 
+  return 0;
+}
+```
 
+>`ros::ServiceClient client = nh.serviceClient<my_service_pkg::AddTwoInts>("add_two_ints");`
+>
+>- 创建一个服务客户端，连接到 `add_two_ints` 服务。
+>
+>`client.call(srv);`
+>
+>- 向服务端发送请求，并获取响应。
 
+## 数据流简要概述
 
+1. **客户端创建请求数据并调用服务**：
+   - 客户端通过 `srv.request` 设置请求数据。
+   - 调用 `client.call(srv)`，请求被发送到服务端。
+2. **服务端接收请求并处理**：
+   - 服务端的回调函数接收到请求数据，存储在 `req` 对象中。
+   - 服务端处理请求，并将响应结果存储在 `res` 对象中。
+3. **服务端回传响应数据**：
+   - 服务端回调函数返回 `true`，表示处理成功。
+   - `res` 对象中的数据通过ROS机制回传给客户端。
+4. **客户端接收响应数据**：
+   - 客户端的 `srv.response` 被填充为服务端返回的响应数据。
+   - 客户端可以读取 `srv.response` 中的值来获得服务端的处理结果。
 
 
 
